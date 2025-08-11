@@ -1,14 +1,14 @@
 import KnowledgeMap from "@/components/knowledge/KnowledgeMap";
-import { Helmet } from "react-helmet-async";
+import Seo from "@/components/seo/Seo";
 
 const Index = () => {
   return (
     <div className="min-h-screen flex flex-col">
-      <Helmet>
-        <title>Carte des Relations | Mapping de Connaissances</title>
-        <meta name="description" content="Cartographiez votre réseau, reliez des personnes, ajustez les niveaux de proximité et exportez vos données en Excel." />
-        <link rel="canonical" href="/" />
-      </Helmet>
+      <Seo
+        title="Carte des Relations | Mapping de Connaissances"
+        description="Cartographiez votre réseau, reliez des personnes, ajustez les niveaux de proximité et exportez vos données en Excel."
+        canonical="/"
+      />
 
       <header className="border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container py-6">
