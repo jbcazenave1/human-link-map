@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
@@ -29,6 +30,7 @@ export interface Person {
   firstName: string;
   lastName: string;
   company?: string;
+  comment?: string;
   proximity: Proximity; // proximité par rapport à vous
   position?: { x: number; y: number };
 }
@@ -90,6 +92,7 @@ function PersonForm({ initial, onSubmit, submitLabel = "Ajouter" }: PersonFormPr
   const [firstName, setFirstName] = useState(initial?.firstName ?? "");
   const [lastName, setLastName] = useState(initial?.lastName ?? "");
   const [company, setCompany] = useState(initial?.company ?? "");
+  const [comment, setComment] = useState(initial?.comment ?? "");
   const [proximity, setProximity] = useState<Proximity>(initial?.proximity ?? "moyen");
 
   return (
@@ -101,7 +104,7 @@ function PersonForm({ initial, onSubmit, submitLabel = "Ajouter" }: PersonFormPr
           toast({ title: "Champs requis", description: "Prénom et nom sont obligatoires" });
           return;
         }
-        onSubmit({ firstName, lastName, company, proximity });
+        onSubmit({ firstName, lastName, company, comment, proximity });
       }}
     >
       <div className="grid gap-2">
@@ -115,6 +118,10 @@ function PersonForm({ initial, onSubmit, submitLabel = "Ajouter" }: PersonFormPr
       <div className="grid gap-2">
         <Label>Entreprise</Label>
         <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Ex: Acme" />
+      </div>
+      <div className="grid gap-2">
+        <Label>Commentaire</Label>
+        <Textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Notes, contexte, objectifs…" rows={4} />
       </div>
       <div className="grid gap-2">
         <Label>Proximité (avec vous)</Label>
@@ -164,17 +171,24 @@ export default function KnowledgeMap() {
   const [pendingConnect, setPendingConnect] = useState<Connection | null>(null);
 
   const initialNodes: Node[] = useMemo(() => {
-    return persons.map((p): Node => ({
-      id: p.id,
-      position: p.position ?? { x: Math.random() * 400, y: Math.random() * 300 },
-      data: { label: `${p.firstName} ${p.lastName}${p.company ? ` — ${p.company}` : ""}`, person: p },
-      type: "default",
-      style: {
-        borderColor: "hsl(var(--border))",
-        background: "hsl(var(--card))",
-        color: "hsl(var(--foreground))",
-      },
-    }));
+    return persons.map((p): Node => {
+      const bg = p.proximity === "fort"
+        ? "hsl(var(--proximity-strong))"
+        : p.proximity === "moyen"
+        ? "hsl(var(--proximity-medium))"
+        : "hsl(var(--proximity-weak))";
+      return {
+        id: p.id,
+        position: p.position ?? { x: Math.random() * 400, y: Math.random() * 300 },
+        data: { label: `${p.firstName} ${p.lastName}${p.company ? ` — ${p.company}` : ""}`, person: p },
+        type: "default",
+        style: {
+          borderColor: "transparent",
+          background: bg,
+          color: "hsl(var(--proximity-foreground))",
+        },
+      };
+    });
   }, [persons]);
 
   const initialEdges: Edge[] = useMemo(() => {
@@ -248,6 +262,7 @@ export default function KnowledgeMap() {
       firstName: p.firstName,
       lastName: p.lastName,
       company: p.company ?? "",
+      comment: p.comment ?? "",
       proximity: p.proximity,
       x: p.position?.x ?? "",
       y: p.position?.y ?? "",
@@ -280,6 +295,7 @@ export default function KnowledgeMap() {
         firstName: String(row.firstName ?? ""),
         lastName: String(row.lastName ?? ""),
         company: row.company ? String(row.company) : undefined,
+        comment: row.comment ? String(row.comment) : undefined,
         proximity: (row.proximity as Proximity) ?? "moyen",
         position: typeof row.x === "number" && typeof row.y === "number" ? { x: row.x, y: row.y } : undefined,
       }));
