@@ -22,8 +22,27 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { supabase } from "@/integrations/supabase/client";
+const sb: any = supabase;
 
 export type Proximity = "fort" | "moyen" | "faible";
+
+export type PersonCategory =
+  | "Partenaire"
+  | "Investisseur"
+  | "Autre"
+  | "Organisme de formation"
+  | "Advisor";
+
+export const allCategories: PersonCategory[] = [
+  "Partenaire",
+  "Investisseur",
+  "Autre",
+  "Organisme de formation",
+  "Advisor",
+];
 
 export interface Person {
   id: string;
@@ -32,6 +51,7 @@ export interface Person {
   company?: string;
   comment?: string;
   proximity: Proximity; // proximité par rapport à vous
+  categories?: PersonCategory[];
   position?: { x: number; y: number };
 }
 
@@ -94,6 +114,7 @@ function PersonForm({ initial, onSubmit, submitLabel = "Ajouter" }: PersonFormPr
   const [company, setCompany] = useState(initial?.company ?? "");
   const [comment, setComment] = useState(initial?.comment ?? "");
   const [proximity, setProximity] = useState<Proximity>(initial?.proximity ?? "moyen");
+  const [categories, setCategories] = useState<PersonCategory[]>(initial?.categories ?? []);
 
   return (
     <form
@@ -104,7 +125,7 @@ function PersonForm({ initial, onSubmit, submitLabel = "Ajouter" }: PersonFormPr
           toast({ title: "Champs requis", description: "Prénom et nom sont obligatoires" });
           return;
         }
-        onSubmit({ firstName, lastName, company, comment, proximity });
+        onSubmit({ firstName, lastName, company, comment, proximity, categories });
       }}
     >
       <div className="grid gap-2">
@@ -135,6 +156,23 @@ function PersonForm({ initial, onSubmit, submitLabel = "Ajouter" }: PersonFormPr
             <SelectItem value="faible">Faible</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+      <div className="grid gap-2">
+        <Label>Rôles</Label>
+        <div className="flex flex-wrap gap-3">
+          {allCategories.map((cat) => (
+            <label key={cat} className="flex items-center gap-2">
+              <Checkbox
+                checked={categories.includes(cat)}
+                onCheckedChange={(checked) => {
+                  setCategories((prev) => (checked ? [...prev, cat] : prev.filter((c) => c !== cat)));
+                }}
+                aria-label={`Choisir ${cat}`}
+              />
+              <span>{cat}</span>
+            </label>
+          ))}
+        </div>
       </div>
       <Button type="submit" className="w-full">{submitLabel}</Button>
     </form>
@@ -169,9 +207,68 @@ export default function KnowledgeMap() {
   const [selectedNode, setSelectedNode] = useState<Person | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<Relation | null>(null);
   const [pendingConnect, setPendingConnect] = useState<Connection | null>(null);
+  const [search, setSearch] = useState("");
+  const [proximityFilter, setProximityFilter] = useState<Proximity | "all">("all");
+  const [categoryFilter, setCategoryFilter] = useState<PersonCategory[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      const { data: pData, error: pErr } = await sb.from("knowledge_persons").select("*");
+      const { data: rData, error: rErr } = await sb.from("knowledge_relations").select("*");
+      if (pErr) console.error(pErr);
+      if (rErr) console.error(rErr);
+      if (pData) {
+        setPersons(
+          pData.map((row: any): Person => ({
+            id: String(row.id),
+            firstName: String(row.first_name),
+            lastName: String(row.last_name),
+            company: row.company ?? undefined,
+            comment: row.comment ?? undefined,
+            proximity: row.proximity as Proximity,
+            categories: (row.categories as PersonCategory[]) ?? [],
+            position:
+              typeof row.position_x === "number" && typeof row.position_y === "number"
+                ? { x: row.position_x, y: row.position_y }
+                : undefined,
+          }))
+        );
+      }
+      if (rData) {
+        setRelations(
+          rData.map((row: any): Relation => ({
+            id: String(row.id),
+            sourceId: String(row.source_id),
+            targetId: String(row.target_id),
+            proximity: row.proximity as Proximity,
+          }))
+        );
+      }
+    })();
+  }, [setPersons, setRelations]);
+
+  const filteredPersons = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return persons.filter((p) => {
+      if (proximityFilter !== "all" && p.proximity !== proximityFilter) return false;
+      if (categoryFilter.length && !(p.categories?.some((c) => categoryFilter.includes(c)))) return false;
+      if (!term) return true;
+      const hay = [
+        p.firstName,
+        p.lastName,
+        p.company ?? "",
+        p.comment ?? "",
+        p.proximity,
+        ...(p.categories ?? []),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(term);
+    });
+  }, [persons, search, proximityFilter, categoryFilter]);
 
   const initialNodes: Node[] = useMemo(() => {
-    return persons.map((p): Node => {
+    return filteredPersons.map((p): Node => {
       const bg = p.proximity === "fort"
         ? "hsl(var(--proximity-strong))"
         : p.proximity === "moyen"
@@ -189,19 +286,22 @@ export default function KnowledgeMap() {
         },
       };
     });
-  }, [persons]);
+  }, [filteredPersons]);
 
   const initialEdges: Edge[] = useMemo(() => {
-    return relations.map((r) => ({
-      id: r.id,
-      source: r.sourceId,
-      target: r.targetId,
-      label: proximityLabel[r.proximity],
-      type: "smoothstep",
-      animated: r.proximity === "fort",
-      style: proximityEdgeStyle[r.proximity],
-    }));
-  }, [relations]);
+    const keepIds = new Set(filteredPersons.map((p) => p.id));
+    return relations
+      .filter((r) => keepIds.has(r.sourceId) && keepIds.has(r.targetId))
+      .map((r) => ({
+        id: r.id,
+        source: r.sourceId,
+        target: r.targetId,
+        label: proximityLabel[r.proximity],
+        type: "smoothstep",
+        animated: r.proximity === "fort",
+        style: proximityEdgeStyle[r.proximity],
+      }));
+  }, [relations, filteredPersons]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -216,7 +316,7 @@ export default function KnowledgeMap() {
     setPendingConnect(connection);
   }, []);
 
-  const commitConnection = useCallback((proximity: Proximity) => {
+  const commitConnection = useCallback(async (proximity: Proximity) => {
     if (!pendingConnect?.source || !pendingConnect?.target) return;
     const newRel: Relation = {
       id: genId("rel"),
@@ -225,24 +325,66 @@ export default function KnowledgeMap() {
       proximity,
     };
     setRelations((prev) => [...prev, newRel]);
+    try {
+      await sb.from("knowledge_relations").insert({
+        id: newRel.id,
+        source_id: newRel.sourceId,
+        target_id: newRel.targetId,
+        proximity: newRel.proximity,
+      });
+    } catch (e) {
+      console.error(e);
+    }
     setPendingConnect(null);
     toast({ title: "Lien ajouté", description: `Proximité: ${proximityLabel[proximity]}` });
   }, [pendingConnect, setRelations]);
 
-  const onAddPerson = (data: Omit<Person, "id">) => {
+  const onAddPerson = async (data: Omit<Person, "id">) => {
     const p: Person = { id: genId("p"), ...data };
     setPersons((prev) => [...prev, p]);
+    try {
+      await sb.from("knowledge_persons").insert({
+        id: p.id,
+        first_name: p.firstName,
+        last_name: p.lastName,
+        company: p.company ?? null,
+        comment: p.comment ?? null,
+        proximity: p.proximity,
+        position_x: p.position?.x ?? null,
+        position_y: p.position?.y ?? null,
+        categories: p.categories ?? [],
+      });
+    } catch (e) {
+      console.error(e);
+    }
     toast({ title: "Personne ajoutée", description: `${data.firstName} ${data.lastName}` });
   };
 
-  const onUpdatePerson = (id: string, data: Omit<Person, "id">) => {
+  const onUpdatePerson = async (id: string, data: Omit<Person, "id">) => {
     setPersons((prev) => prev.map((p) => (p.id === id ? { ...p, ...data } : p)));
+    try {
+      await sb.from("knowledge_persons").update({
+        first_name: data.firstName,
+        last_name: data.lastName,
+        company: data.company ?? null,
+        comment: data.comment ?? null,
+        proximity: data.proximity,
+        categories: data.categories ?? [],
+      }).eq("id", id);
+    } catch (e) {
+      console.error(e);
+    }
     toast({ title: "Modifié", description: `${data.firstName} ${data.lastName}` });
   };
 
-  const onDeletePerson = (id: string) => {
+  const onDeletePerson = async (id: string) => {
     setPersons((prev) => prev.filter((p) => p.id !== id));
     setRelations((prev) => prev.filter((r) => r.sourceId !== id && r.targetId !== id));
+    try {
+      await sb.from("knowledge_persons").delete().eq("id", id);
+    } catch (e) {
+      console.error(e);
+    }
     setSelectedNode(null);
   };
 
@@ -252,8 +394,16 @@ export default function KnowledgeMap() {
   };
 
   // Persist positions on drag stop
-  const onNodeDragStop = (_: any, node: Node) => {
+  const onNodeDragStop = async (_: any, node: Node) => {
     setPersons((prev) => prev.map((p) => (p.id === node.id ? { ...p, position: node.position } : p)));
+    try {
+      await sb
+        .from("knowledge_persons")
+        .update({ position_x: node.position.x, position_y: node.position.y })
+        .eq("id", node.id);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const exportExcel = () => {
@@ -264,6 +414,7 @@ export default function KnowledgeMap() {
       company: p.company ?? "",
       comment: p.comment ?? "",
       proximity: p.proximity,
+      categories: (p.categories ?? []).join("|"),
       x: p.position?.x ?? "",
       y: p.position?.y ?? "",
     }));
@@ -297,6 +448,7 @@ export default function KnowledgeMap() {
         company: row.company ? String(row.company) : undefined,
         comment: row.comment ? String(row.comment) : undefined,
         proximity: (row.proximity as Proximity) ?? "moyen",
+        categories: row.categories ? String(row.categories).split("|") as PersonCategory[] : [],
         position: typeof row.x === "number" && typeof row.y === "number" ? { x: row.x, y: row.y } : undefined,
       }));
       const importedRelations: Relation[] = rRows.map((row) => ({
@@ -368,18 +520,61 @@ export default function KnowledgeMap() {
             </div>
           </SheetContent>
         </Sheet>
-        <Button variant="outline" onClick={exportExcel}>Exporter</Button>
+        <Input
+          placeholder="Rechercher..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-56"
+        />
+        <Select value={proximityFilter} onValueChange={(v) => setProximityFilter(v as any)}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Proximité" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toutes</SelectItem>
+            <SelectItem value="fort">Fort</SelectItem>
+            <SelectItem value="moyen">Moyen</SelectItem>
+            <SelectItem value="faible">Faible</SelectItem>
+          </SelectContent>
+        </Select>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline">Catégories</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="z-50">
+            {allCategories.map((cat) => (
+              <DropdownMenuCheckboxItem
+                key={cat}
+                checked={categoryFilter.includes(cat)}
+                onCheckedChange={(checked) => {
+                  setCategoryFilter((prev) => (checked ? [...prev, cat] : prev.filter((c) => c !== cat)));
+                }}
+              >
+                {cat}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
           variant="ghost"
-          onClick={() => {
+          onClick={async () => {
             if (confirm("Réinitialiser toutes les données ?")) {
+              const relIds = relations.map((r) => r.id);
+              const personIds = persons.map((p) => p.id);
               setPersons([]);
               setRelations([]);
+              try {
+                if (relIds.length) await sb.from("knowledge_relations").delete().in("id", relIds);
+                if (personIds.length) await sb.from("knowledge_persons").delete().in("id", personIds);
+              } catch (e) {
+                console.error(e);
+              }
             }
           }}
         >
           Réinitialiser
         </Button>
+        <Button variant="outline" onClick={exportExcel}>Exporter</Button>
       </div>
 
       {/* Edit person dialog */}
@@ -414,14 +609,24 @@ export default function KnowledgeMap() {
             <div className="space-y-4">
               <RelationSelector
                 value={selectedEdge.proximity}
-                onChange={(p) => {
+                onChange={async (p) => {
                   setRelations((prev) => prev.map((r) => (r.id === selectedEdge.id ? { ...r, proximity: p } : r)));
+                  try {
+                    await sb.from("knowledge_relations").update({ proximity: p }).eq("id", selectedEdge.id);
+                  } catch (e) {
+                    console.error(e);
+                  }
                 }}
               />
               <Separator />
               <Button
                 variant="destructive"
-                onClick={() => {
+                onClick={async () => {
+                  try {
+                    await sb.from("knowledge_relations").delete().eq("id", selectedEdge.id);
+                  } catch (e) {
+                    console.error(e);
+                  }
                   setRelations((prev) => prev.filter((r) => r.id !== selectedEdge.id));
                   setSelectedEdge(null);
                 }}
