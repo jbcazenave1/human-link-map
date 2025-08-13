@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { User } from "@supabase/supabase-js";
 import {
   ReactFlow,
   Background,
@@ -210,41 +211,57 @@ export default function KnowledgeMap() {
   const [search, setSearch] = useState("");
   const [proximityFilter, setProximityFilter] = useState<Proximity | "all">("all");
   const [categoryFilter, setCategoryFilter] = useState<PersonCategory[]>([]);
+  const [user, setUser] = useState<User | null>(null);
 
+  // Get current user and load data
   useEffect(() => {
-    (async () => {
-      const { data: pData, error: pErr } = await sb.from("knowledge_persons").select("*");
-      const { data: rData, error: rErr } = await sb.from("knowledge_relations").select("*");
-      if (pErr) console.error(pErr);
-      if (rErr) console.error(rErr);
-      if (pData) {
-        setPersons(
-          pData.map((row: any): Person => ({
-            id: String(row.id),
-            firstName: String(row.first_name),
-            lastName: String(row.last_name),
-            company: row.company ?? undefined,
-            comment: row.comment ?? undefined,
-            proximity: row.proximity as Proximity,
-            categories: (row.categories as PersonCategory[]) ?? [],
-            position:
-              typeof row.position_x === "number" && typeof row.position_y === "number"
-                ? { x: row.position_x, y: row.position_y }
-                : undefined,
-          }))
-        );
+    const getUser = async () => {
+      const { data: { user } } = await sb.auth.getUser();
+      setUser(user);
+      
+      if (user) {
+        const { data: pData, error: pErr } = await sb
+          .from("knowledge_persons")
+          .select("*")
+          .eq("user_id", user.id);
+        const { data: rData, error: rErr } = await sb
+          .from("knowledge_relations")
+          .select("*")
+          .eq("user_id", user.id);
+          
+        if (pErr) console.error(pErr);
+        if (rErr) console.error(rErr);
+        
+        if (pData) {
+          setPersons(
+            pData.map((row: any): Person => ({
+              id: String(row.id),
+              firstName: String(row.first_name),
+              lastName: String(row.last_name),
+              company: row.company ?? undefined,
+              comment: row.comment ?? undefined,
+              proximity: row.proximity as Proximity,
+              categories: (row.categories as PersonCategory[]) ?? [],
+              position:
+                typeof row.position_x === "number" && typeof row.position_y === "number"
+                  ? { x: row.position_x, y: row.position_y }
+                  : undefined,
+            }))
+          );
+        }
+        if (rData) {
+          setRelations(
+            rData.map((row: any): Relation => ({
+              id: String(row.id),
+              sourceId: String(row.source_id),
+              targetId: String(row.target_id),
+              proximity: row.proximity as Proximity,
+            }))
+          );
+        }
       }
-      if (rData) {
-        setRelations(
-          rData.map((row: any): Relation => ({
-            id: String(row.id),
-            sourceId: String(row.source_id),
-            targetId: String(row.target_id),
-            proximity: row.proximity as Proximity,
-          }))
-        );
-      }
-    })();
+    };
+    getUser();
   }, [setPersons, setRelations]);
 
   const filteredPersons = useMemo(() => {
@@ -317,7 +334,7 @@ export default function KnowledgeMap() {
   }, []);
 
   const commitConnection = useCallback(async (proximity: Proximity) => {
-    if (!pendingConnect?.source || !pendingConnect?.target) return;
+    if (!pendingConnect?.source || !pendingConnect?.target || !user) return;
     const newRel: Relation = {
       id: genId("rel"),
       sourceId: String(pendingConnect.source),
@@ -328,6 +345,7 @@ export default function KnowledgeMap() {
     try {
       await sb.from("knowledge_relations").insert({
         id: newRel.id,
+        user_id: user.id,
         source_id: newRel.sourceId,
         target_id: newRel.targetId,
         proximity: newRel.proximity,
@@ -337,22 +355,25 @@ export default function KnowledgeMap() {
     }
     setPendingConnect(null);
     toast({ title: "Lien ajouté", description: `Proximité: ${proximityLabel[proximity]}` });
-  }, [pendingConnect, setRelations]);
+  }, [pendingConnect, setRelations, user]);
 
   const onAddPerson = async (data: Omit<Person, "id">) => {
-    const p: Person = { id: genId("p"), ...data };
-    setPersons((prev) => [...prev, p]);
+    if (!user) return;
+    
+    const newP: Person = { ...data, id: genId("p") };
+    setPersons((prev) => [...prev, newP]);
     try {
       await sb.from("knowledge_persons").insert({
-        id: p.id,
-        first_name: p.firstName,
-        last_name: p.lastName,
-        company: p.company ?? null,
-        comment: p.comment ?? null,
-        proximity: p.proximity,
-        position_x: p.position?.x ?? null,
-        position_y: p.position?.y ?? null,
-        categories: p.categories ?? [],
+        id: newP.id,
+        user_id: user.id,
+        first_name: data.firstName,
+        last_name: data.lastName,
+        company: data.company ?? null,
+        comment: data.comment ?? null,
+        proximity: data.proximity,
+        position_x: data.position?.x ?? null,
+        position_y: data.position?.y ?? null,
+        categories: data.categories ?? [],
       });
     } catch (e) {
       console.error(e);
@@ -361,6 +382,8 @@ export default function KnowledgeMap() {
   };
 
   const onUpdatePerson = async (id: string, data: Omit<Person, "id">) => {
+    if (!user) return;
+    
     setPersons((prev) => prev.map((p) => (p.id === id ? { ...p, ...data } : p)));
     try {
       await sb.from("knowledge_persons").update({
@@ -370,7 +393,7 @@ export default function KnowledgeMap() {
         comment: data.comment ?? null,
         proximity: data.proximity,
         categories: data.categories ?? [],
-      }).eq("id", id);
+      }).eq("id", id).eq("user_id", user.id);
     } catch (e) {
       console.error(e);
     }
@@ -378,10 +401,13 @@ export default function KnowledgeMap() {
   };
 
   const onDeletePerson = async (id: string) => {
+    if (!user) return;
+    
     setPersons((prev) => prev.filter((p) => p.id !== id));
     setRelations((prev) => prev.filter((r) => r.sourceId !== id && r.targetId !== id));
     try {
-      await sb.from("knowledge_persons").delete().eq("id", id);
+      await sb.from("knowledge_persons").delete().eq("id", id).eq("user_id", user.id);
+      await sb.from("knowledge_relations").delete().or(`source_id.eq.${id},target_id.eq.${id}`).eq("user_id", user.id);
     } catch (e) {
       console.error(e);
     }
@@ -395,12 +421,15 @@ export default function KnowledgeMap() {
 
   // Persist positions on drag stop
   const onNodeDragStop = async (_: any, node: Node) => {
+    if (!user) return;
+    
     setPersons((prev) => prev.map((p) => (p.id === node.id ? { ...p, position: node.position } : p)));
     try {
       await sb
         .from("knowledge_persons")
         .update({ position_x: node.position.x, position_y: node.position.y })
-        .eq("id", node.id);
+        .eq("id", node.id)
+        .eq("user_id", user.id);
     } catch (e) {
       console.error(e);
     }
@@ -558,14 +587,15 @@ export default function KnowledgeMap() {
         <Button
           variant="ghost"
           onClick={async () => {
+            if (!user) return;
             if (confirm("Réinitialiser toutes les données ?")) {
               const relIds = relations.map((r) => r.id);
               const personIds = persons.map((p) => p.id);
               setPersons([]);
               setRelations([]);
               try {
-                if (relIds.length) await sb.from("knowledge_relations").delete().in("id", relIds);
-                if (personIds.length) await sb.from("knowledge_persons").delete().in("id", personIds);
+                if (relIds.length) await sb.from("knowledge_relations").delete().in("id", relIds).eq("user_id", user.id);
+                if (personIds.length) await sb.from("knowledge_persons").delete().in("id", personIds).eq("user_id", user.id);
               } catch (e) {
                 console.error(e);
               }
@@ -610,9 +640,10 @@ export default function KnowledgeMap() {
               <RelationSelector
                 value={selectedEdge.proximity}
                 onChange={async (p) => {
+                  if (!user) return;
                   setRelations((prev) => prev.map((r) => (r.id === selectedEdge.id ? { ...r, proximity: p } : r)));
                   try {
-                    await sb.from("knowledge_relations").update({ proximity: p }).eq("id", selectedEdge.id);
+                    await sb.from("knowledge_relations").update({ proximity: p }).eq("id", selectedEdge.id).eq("user_id", user.id);
                   } catch (e) {
                     console.error(e);
                   }
@@ -622,8 +653,9 @@ export default function KnowledgeMap() {
               <Button
                 variant="destructive"
                 onClick={async () => {
+                  if (!user) return;
                   try {
-                    await sb.from("knowledge_relations").delete().eq("id", selectedEdge.id);
+                    await sb.from("knowledge_relations").delete().eq("id", selectedEdge.id).eq("user_id", user.id);
                   } catch (e) {
                     console.error(e);
                   }
