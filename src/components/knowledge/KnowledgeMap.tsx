@@ -204,17 +204,6 @@ export default function KnowledgeMap() {
   const [proximityFilter, setProximityFilter] = useState<Proximity | "all">("all");
   const [categoryFilter, setCategoryFilter] = useState<PersonCategory[]>([]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-muted-foreground">Chargement de vos données...</p>
-        </div>
-      </div>
-    );
-  }
-
   const filteredPersons = useMemo(() => {
     const term = search.trim().toLowerCase();
     return persons.filter((p) => {
@@ -372,6 +361,17 @@ export default function KnowledgeMap() {
   };
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">Chargement de vos données...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-[calc(100vh-4rem)] w-full relative">
