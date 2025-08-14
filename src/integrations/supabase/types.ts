@@ -7,14 +7,103 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instanciate createClient with right options
+  // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "13.0.4"
   }
   public: {
     Tables: {
-      [_ in never]: never
+      knowledge_persons: {
+        Row: {
+          categories: Database["public"]["Enums"]["person_category"][]
+          comment: string | null
+          company: string | null
+          created_at: string
+          first_name: string
+          id: string
+          last_name: string
+          position_x: number | null
+          position_y: number | null
+          proximity: Database["public"]["Enums"]["proximity_level"]
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          categories?: Database["public"]["Enums"]["person_category"][]
+          comment?: string | null
+          company?: string | null
+          created_at?: string
+          first_name: string
+          id?: string
+          last_name: string
+          position_x?: number | null
+          position_y?: number | null
+          proximity?: Database["public"]["Enums"]["proximity_level"]
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          categories?: Database["public"]["Enums"]["person_category"][]
+          comment?: string | null
+          company?: string | null
+          created_at?: string
+          first_name?: string
+          id?: string
+          last_name?: string
+          position_x?: number | null
+          position_y?: number | null
+          proximity?: Database["public"]["Enums"]["proximity_level"]
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      knowledge_relations: {
+        Row: {
+          created_at: string
+          id: string
+          proximity: Database["public"]["Enums"]["proximity_level"]
+          source_id: string
+          target_id: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          proximity?: Database["public"]["Enums"]["proximity_level"]
+          source_id: string
+          target_id: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          proximity?: Database["public"]["Enums"]["proximity_level"]
+          source_id?: string
+          target_id?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_relations_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_persons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "knowledge_relations_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_persons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +112,13 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      person_category:
+        | "Partenaire"
+        | "Investisseur"
+        | "Autre"
+        | "Organisme de formation"
+        | "Advisor"
+      proximity_level: "fort" | "moyen" | "faible"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +245,15 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      person_category: [
+        "Partenaire",
+        "Investisseur",
+        "Autre",
+        "Organisme de formation",
+        "Advisor",
+      ],
+      proximity_level: ["fort", "moyen", "faible"],
+    },
   },
 } as const
