@@ -7,9 +7,6 @@ const sb: any = supabase;
 import { toast } from "@/hooks/use-toast";
 import type { Person, Relation, Proximity, PersonCategory } from "@/components/knowledge/KnowledgeMap";
 
-function genId(prefix = "id") {
-  return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
-}
 
 export function useKnowledgeMapData() {
   const [persons, setPersons] = useState<Person[]>([]);
@@ -128,16 +125,13 @@ export function useKnowledgeMapData() {
       toast({ title: "Erreur", description: "Utilisateur non connecté" });
       return;
     }
-
-    const newPerson: Person = { ...data, id: genId("p") };
     
     try {
-      console.log("Adding person:", newPerson);
+      console.log("Adding person:", data);
       
-      const { error } = await sb
+      const { data: insertedData, error } = await sb
         .from("knowledge_persons")
         .insert({
-          id: newPerson.id,
           user_id: user.id,
           first_name: data.firstName,
           last_name: data.lastName,
@@ -147,13 +141,26 @@ export function useKnowledgeMapData() {
           position_x: data.position?.x ?? null,
           position_y: data.position?.y ?? null,
           categories: data.categories ?? [],
-        });
+        })
+        .select()
+        .single();
 
       if (error) {
         console.error("Error adding person:", error);
         toast({ title: "Erreur", description: "Impossible d'ajouter la personne" });
         return;
       }
+
+      const newPerson: Person = {
+        id: String(insertedData.id),
+        firstName: data.firstName,
+        lastName: data.lastName,
+        company: data.company,
+        comment: data.comment,
+        proximity: data.proximity,
+        categories: data.categories ?? [],
+        position: data.position,
+      };
 
       setPersons(prev => [...prev, newPerson]);
       toast({ title: "Personne ajoutée", description: `${data.firstName} ${data.lastName}` });
@@ -250,31 +257,32 @@ export function useKnowledgeMapData() {
       return;
     }
 
-    const newRelation: Relation = {
-      id: genId("rel"),
-      sourceId,
-      targetId,
-      proximity,
-    };
-
     try {
-      console.log("Adding relation:", newRelation);
+      console.log("Adding relation:", { sourceId, targetId, proximity });
       
-      const { error } = await sb
+      const { data: insertedData, error } = await sb
         .from("knowledge_relations")
         .insert({
-          id: newRelation.id,
           user_id: user.id,
           source_id: sourceId,
           target_id: targetId,
           proximity: proximity,
-        });
+        })
+        .select()
+        .single();
 
       if (error) {
         console.error("Error adding relation:", error);
         toast({ title: "Erreur", description: "Impossible d'ajouter le lien" });
         return;
       }
+
+      const newRelation: Relation = {
+        id: String(insertedData.id),
+        sourceId,
+        targetId,
+        proximity,
+      };
 
       setRelations(prev => [...prev, newRelation]);
       toast({ title: "Lien ajouté", description: `Proximité: ${proximity}` });
